@@ -8,7 +8,14 @@ packages = [{include = "cv", from = "src"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-
+opencv-python = "*"
+mediapipe = "*"
+numpy = "*"
+pandas = "*"
+scipy = "*"
+fastapi = "*"
+uvicorn = "*"
+python-socketio = "*"
 
 [build-system]
 requires = ["poetry-core"]
