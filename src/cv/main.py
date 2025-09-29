@@ -1,7 +1,9 @@
 
 import asyncio
 import base64
+import csv
 import logging
+import os
 from typing import Dict
 
 import cv2
@@ -35,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 # Session data
 session_data: Dict[str, Dict] = {}
+
+# Output directory for CSV files
+OUTPUT_DIR = "output_csvs"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # -----------------------
@@ -87,6 +93,20 @@ def process_pose_frame(image_data: str, sid: str):
                 xyz = mediapipe_landmark_to_xyz(lm[mp_idx], image_w, image_h)
                 xyz_norm = xyz - chest_center
                 kinect_joints_data[j] = xyz_norm.tolist()
+
+        # Save kinect data to CSV
+        if sid in session_data and "csv_writer" in session_data[sid]:
+            row_data = []
+            for joint in KINECT_JOINTS:
+                joint_data = kinect_joints_data.get(joint, [None, None, None])
+                row_data.extend(joint_data)
+            
+            # Ensure the writer and file are still valid before writing
+            csv_writer = session_data[sid].get("csv_writer")
+            csv_file = session_data[sid].get("csv_file")
+            if csv_writer and csv_file and not csv_file.closed:
+                csv_writer.writerow(row_data)
+
 
         return {
             "landmarks": landmarks_for_client,
@@ -208,13 +228,38 @@ async def read_root():
 @sio.event
 async def connect(sid, environ):
     logger.info(f"Client connected: {sid}")
-    session_data[sid] = {"last_frame_time": asyncio.get_event_loop().time()}
+    
+    # Prepare CSV file for the session
+    try:
+        file_path = os.path.join(OUTPUT_DIR, f"{sid}.csv")
+        csv_file = open(file_path, "w", newline="")
+        csv_writer = csv.writer(csv_file)
+        
+        # Write header
+        header = []
+        for joint in KINECT_JOINTS:
+            header.extend([f"{joint}_x", f"{joint}_y", f"{joint}_z"])
+        csv_writer.writerow(header)
+        
+        session_data[sid] = {
+            "last_frame_time": asyncio.get_event_loop().time(),
+            "csv_file": csv_file,
+            "csv_writer": csv_writer,
+        }
+        logger.info(f"CSV file created for session {sid} at {file_path}")
+    except Exception as e:
+        logger.error(f"Failed to create CSV file for session {sid}: {e}", exc_info=True)
 
 
 @sio.event
 async def disconnect(sid):
     logger.info(f"Client disconnected: {sid}")
-    session_data.pop(sid, None)
+    if sid in session_data:
+        csv_file = session_data[sid].get("csv_file")
+        if csv_file and not csv_file.closed:
+            csv_file.close()
+            logger.info(f"CSV file for session {sid} closed.")
+        session_data.pop(sid, None)
 
 
 @sio.on("frame")
@@ -227,4 +272,3 @@ async def handle_frame(sid, data):
             await sio.emit("pose_data", pose_data, to=sid)
     except Exception as e:
         logger.error(f"Error in handle_frame for sid {sid}: {e}", exc_info=True)
-
