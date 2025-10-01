@@ -80,7 +80,9 @@ def process_pose_frame(image_data: str, sid: str):
             {"x": l.x, "y": l.y, "z": l.z, "visibility": l.visibility} for l in lm
         ]
 
-        pose_fit_score = evaluate_pose_fit(lm) 
+        pose_fit_score, _ = evaluate_pose_fit(lm) 
+        
+        print(f"Debug - Pose Fit Score: {pose_fit_score}")
 
 
         # Kinect matching logic (simplified for real-time)
@@ -153,14 +155,12 @@ async def read_root():
                 <canvas id="canvas" width="640" height="480"></canvas>
             </div>
         </div>
-        <pre id="kinect-data"></pre>
 
         <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
         <script>
             const video = document.getElementById('video');
             const canvas = document.getElementById('canvas');
             const ctx = canvas.getContext('2d');
-            const kinectDataEl = document.getElementById('kinect-data');
 
             const poseFitScoreEl = document.createElement('p');
             poseFitScoreEl.style.textAlign = 'center';
@@ -217,9 +217,6 @@ async def read_root():
                             }
                         });
                     }
-                }
-                if (data && data.kinect_joints) {
-                    kinectDataEl.textContent = JSON.stringify(data.kinect_joints, null, 2);
                 }
 
                 if (data && data.pose_fit_score !== undefined) {

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pose Estimation</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        #video, #processed_image {
+            width: 640px;
+            height: 480px;
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-time Pose Estimation</h1>
+    <div style="display: flex;">
+        <div>
+            <h2>Your Webcam</h2>
+            <video id="video" autoplay playsinline></video>
+        </div>
+        <div>
+            <h2>Processed Video</h2>
+            <img id="processed_image">
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const processed_image = document.getElementById('processed_image');
+        const socket = io();
+
+        socket.on('connect', function() {
+            console.log('Connected to server');
+        });
+
+        socket.on('response', function(data) {
+            processed_image.src = data;
+        });
+
+        if (navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(function (stream) {
+                    video.srcObject = stream;
+                })
+                .catch(function (error) {
+                    console.log("Something went wrong!", error);
+                });
+        }
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = 640;
+        canvas.height = 480;
+
+        setInterval(() => {
+            context.drawImage(video, 0, 0, 640, 480);
+            const data = canvas.toDataURL('image/jpeg', 0.9);
+            socket.emit('image', data);
+        }, 100); // Send an image every 100ms
+
+    </script>
+</body>
+</html>
