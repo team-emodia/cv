@@ -13,7 +13,9 @@ import socketio
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from cv.mediapipe_to_kinect_match import KINECT_JOINTS, KINECT_TO_MEDIAPIPE
+from cv.mediapipe_to_kinect_match import KINECT_JOINTS, KINECT_TO_MEDIAPIPE, evaluate_pose_fit
+
+
 
 # -----------------------
 # 1) Initialization
@@ -78,6 +80,9 @@ def process_pose_frame(image_data: str, sid: str):
             {"x": l.x, "y": l.y, "z": l.z, "visibility": l.visibility} for l in lm
         ]
 
+        pose_fit_score = evaluate_pose_fit(lm) 
+
+
         # Kinect matching logic (simplified for real-time)
         left_sh = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
         right_sh = lm[mp_pose.PoseLandmark.RIGHT_SHOULDER]
@@ -112,6 +117,7 @@ def process_pose_frame(image_data: str, sid: str):
             "landmarks": landmarks_for_client,
             "connections": list(mp_pose.POSE_CONNECTIONS),
             "kinect_joints": kinect_joints_data,
+            "pose_fit_score": pose_fit_score,
         }
 
     except Exception as e:
@@ -155,6 +161,11 @@ async def read_root():
             const canvas = document.getElementById('canvas');
             const ctx = canvas.getContext('2d');
             const kinectDataEl = document.getElementById('kinect-data');
+
+            const poseFitScoreEl = document.createElement('p');
+            poseFitScoreEl.style.textAlign = 'center';
+            poseFitScoreEl.style.fontWeight = 'bold';
+            document.body.appendChild(poseFitScoreEl);
 
             const socket = io(window.location.origin);
 
@@ -210,6 +221,12 @@ async def read_root():
                 if (data && data.kinect_joints) {
                     kinectDataEl.textContent = JSON.stringify(data.kinect_joints, null, 2);
                 }
+
+                if (data && data.pose_fit_score !== undefined) {
+                    const score = (data.pose_fit_score * 100).toFixed(2);
+                    poseFitScoreEl.textContent = `Pose Fit Score: ${score}%`;
+                }
+                
             });
 
             socket.on('disconnect', () => {
@@ -269,6 +286,10 @@ async def handle_frame(sid, data):
         # Offload CPU-bound work to a thread pool
         pose_data = await loop.run_in_executor(None, process_pose_frame, data, sid)
         if pose_data:
+            if pose_data.get('landmarks') is not None:
+                # landmarks는 리스트 형태이므로, MediaPipe 객체로 재변환 필요
+                # 이는 비효율적이므로 process_pose_frame에서 점수를 계산하는 것이 더 좋음
+                pass # 이 부분은 다음 단계에서 수정
             await sio.emit("pose_data", pose_data, to=sid)
     except Exception as e:
         logger.error(f"Error in handle_frame for sid {sid}: {e}", exc_info=True)

@@ -89,6 +89,33 @@ KINECT_TO_MEDIAPIPE = {
     "FootLeft": L.LEFT_FOOT_INDEX,
 }
 
+# -----------------------
+# 2) 모델 및 스케일러 로드
+# -----------------------
+import os
+import pickle
+from tensorflow.keras.models import load_model
+
+# 현재 스크립트 파일의 경로를 기준으로 모델 폴더 지정
+base_path = os.path.dirname(os.path.abspath(__file__))
+model_dir = os.path.join(base_path, 'models')
+
+# 모델과 정규화 스케일러 로드
+try:
+    model_path = os.path.join(model_dir, 'youtube_autoencoder_model.h5')
+    trained_model = load_model(model_path)
+    
+    scaler_path = os.path.join(model_dir, 'youtube_pose_data_normalize.pkl')
+    with open(scaler_path, 'rb') as f:
+        scaler = pickle.load(f)
+    
+    print("AI 모델과 정규화 스케일러를 성공적으로 로드했습니다.")
+
+except FileNotFoundError:
+    print("오류: 모델 또는 정규화 스케일러 파일을 찾을 수 없습니다. 경로를 확인해 주세요.")
+    trained_model = None
+    scaler = None
+
 
 # -----------------------
 # 2) Helper functions
@@ -103,6 +130,66 @@ def mediapipe_landmark_to_xyz(landmark, image_w, image_h):
         [landmark.x * image_w, landmark.y * image_h, landmark.z * 1000.0]
     )  # scale z for numeric stability
 
+def get_pose_features(landmarks):
+    """
+    MediaPipe 랜드마크를 모델 입력 형식에 맞는 features로 변환
+    """
+    pose_features = []
+    for lm in landmarks:
+        pose_features.extend([lm.x, lm.y, lm.z])
+    return np.array(pose_features).reshape(1, -1)
+
+def evaluate_pose_fit(landmarks):
+    """
+    학습된 모델로 현재 포즈의 적합도를 평가
+    """
+    global trained_model
+    
+    # -----------------------------------
+    # 1. 포즈 데이터를 Numpy 배열로 변환
+    # -----------------------------------
+    pose_features = []
+    for lm in landmarks:
+        pose_features.extend([lm.x, lm.y, lm.z])
+    pose_data = np.array(pose_features).reshape(1, -1)
+    
+    # -----------------------------------
+    # 2. '안전한 정규화' 수행
+    # -----------------------------------
+    # 데이터의 최소값과 최대값을 찾아서 정규화
+    # 0으로 나누는 오류 방지
+    min_vals = pose_data.min(axis=1)
+    max_vals = pose_data.max(axis=1)
+    
+    denom = max_vals - min_vals
+    
+    # 0으로 나누는 경우를 방지하기 위해 아주 작은 값(epsilon)을 더해줌
+    denom[denom == 0] = np.finfo(float).eps
+    
+    normalized_data = (pose_data - min_vals[:, np.newaxis]) / denom[:, np.newaxis]
+    
+    # -----------------------------------
+    # 3. 모델로 적합도 평가
+    # -----------------------------------
+    if trained_model is None:
+        return 0.0, 0.0
+        
+    try:
+        reconstructed_data = trained_model.predict(normalized_data)
+        reconstruction_error = np.mean(np.square(normalized_data - reconstructed_data))
+        
+        # 이전처럼 fit_score 계산
+        max_error = 0.5
+        fit_score = max(0.0, 1.0 - (reconstruction_error / max_error))
+        
+        print(f"재구성 오차(Reconstruction Error): {reconstruction_error}")
+        print(f"적합도 점수(Fit Score): {fit_score}")
+        
+        return fit_score, reconstruction_error
+        
+    except Exception as e:
+        print(f"포즈 적합도 평가 중 오류 발생: {e}")
+        return 0.0, 0.0
 
 # -----------------------
 # 3) Load Kinect dataset trial CSV
